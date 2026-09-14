@@ -1,0 +1,68 @@
+name: Terraform + LocalStack CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  terraform-localstack:
+    runs-on: ubuntu-latest
+
+    services:
+      localstack:
+        image: localstack/localstack:latest
+        ports:
+          - 4566:4566
+        env:
+          SERVICES: s3,lambda,dynamodb,apigateway,iam,sts,cloudwatch,logs
+        options: >-
+          --health-cmd "curl -f http://localhost:4566/_localstack/health"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.15.7"
+
+      - name: Set dummy AWS credentials for LocalStack
+        run: |
+          echo "AWS_ACCESS_KEY_ID=test" >> $GITHUB_ENV
+          echo "AWS_SECRET_ACCESS_KEY=test" >> $GITHUB_ENV
+          echo "AWS_DEFAULT_REGION=us-east-1" >> $GITHUB_ENV
+
+      - name: Wait for LocalStack to be ready
+        run: |
+          for i in {1..20}; do
+            curl -sf http://localhost:4566/_localstack/health && break
+            echo "Waiting for LocalStack..."
+            sleep 3
+          done
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Plan
+        run: terraform plan
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
+
+      - name: Test the deployed API
+        run: |
+          API_URL=$(terraform output -raw api_url)
+          echo "Testing GET $API_URL"
+          curl -sf "$API_URL" | grep -q '\[' && echo "GET check passed"
+
+          echo "Testing POST $API_URL"
+          RESPONSE=$(curl -sf -X POST "$API_URL" \
+            -H "Content-Type: application/json" \
+            -d '{"text": "created by CI"}')
+          echo "$RESPONSE" | grep -q "created by CI" && echo "POST check passed"

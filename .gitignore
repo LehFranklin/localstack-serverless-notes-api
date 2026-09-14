@@ -1,0 +1,11 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# Lambda build artifacts
+lambda/handler.zip
+
+# Mac
+.DS_Store
