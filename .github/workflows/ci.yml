@@ -10,20 +10,6 @@ jobs:
   terraform-localstack:
     runs-on: ubuntu-latest
 
-    services:
-      localstack:
-        image: localstack/localstack:latest
-        ports:
-          - 4566:4566
-        env:
-          SERVICES: s3,lambda,dynamodb,apigateway,iam,sts,cloudwatch,logs
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
-        options: >-
-          --health-cmd "curl -f http://localhost:4566/_localstack/health"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -39,9 +25,21 @@ jobs:
           echo "AWS_SECRET_ACCESS_KEY=test" >> $GITHUB_ENV
           echo "AWS_DEFAULT_REGION=us-east-1" >> $GITHUB_ENV
 
+      # Run LocalStack directly (not as a "services:" container) and mount
+      # the Docker socket, so LocalStack can spawn the sibling containers
+      # it needs to actually execute Lambda functions.
+      - name: Start LocalStack
+        run: |
+          docker run -d --name localstack \
+            -p 4566:4566 \
+            -e LOCALSTACK_AUTH_TOKEN=${{ secrets.LOCALSTACK_AUTH_TOKEN }} \
+            -e SERVICES=s3,lambda,dynamodb,apigateway,iam,sts,cloudwatch,logs \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            localstack/localstack:latest
+
       - name: Wait for LocalStack to be ready
         run: |
-          for i in {1..20}; do
+          for i in {1..30}; do
             curl -sf http://localhost:4566/_localstack/health && break
             echo "Waiting for LocalStack..."
             sleep 3
@@ -67,3 +65,7 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{"text": "created by CI"}')
           echo "$RESPONSE" | grep -q "created by CI" && echo "POST check passed"
+
+      - name: Show LocalStack logs on failure
+        if: failure()
+        run: docker logs localstack
