@@ -53,18 +53,31 @@ jobs:
 
       - name: Terraform Apply
         run: terraform apply -auto-approve
-
       - name: Test the deployed API
         run: |
           API_URL=$(terraform output -raw api_url)
+          echo "API URL: $API_URL"
+          sleep 5
+
           echo "Testing GET $API_URL"
-          curl -sf "$API_URL" | grep -q '\[' && echo "GET check passed"
+          GET_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" "$API_URL")
+          echo "$GET_RESPONSE"
+          GET_STATUS=$(echo "$GET_RESPONSE" | grep "HTTP_STATUS" | cut -d: -f2)
+          if [ "$GET_STATUS" != "200" ]; then
+            echo "GET check FAILED (status $GET_STATUS)"
+            exit 1
+          fi
+          echo "GET check passed"
 
           echo "Testing POST $API_URL"
-          RESPONSE=$(curl -sf -X POST "$API_URL" \
-            -H "Content-Type: application/json" \
-            -d '{"text": "created by CI"}')
-          echo "$RESPONSE" | grep -q "created by CI" && echo "POST check passed"
+          POST_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "$API_URL" -H "Content-Type: application/json" -d '{"text": "created by CI"}')
+          echo "$POST_RESPONSE"
+          POST_STATUS=$(echo "$POST_RESPONSE" | grep "HTTP_STATUS" | cut -d: -f2)
+          if [ "$POST_STATUS" != "201" ]; then
+            echo "POST check FAILED (status $POST_STATUS)"
+            exit 1
+          fi
+          echo "POST check passed"
 
       - name: Show LocalStack logs on failure
         if: failure()
