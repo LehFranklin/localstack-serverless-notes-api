@@ -82,3 +82,16 @@ jobs:
       - name: Show LocalStack logs on failure
         if: failure()
         run: docker logs localstack
+
+      - name: Show Lambda logs on failure
+        if: failure()
+        run: |
+          LOG_GROUP="/aws/lambda/notes-api"
+          STREAM=$(aws --endpoint-url=http://localhost:4566 logs describe-log-streams \
+            --log-group-name "$LOG_GROUP" \
+            --order-by LastEventTime --descending \
+            --query 'logStreams[0].logStreamName' --output text)
+          echo "Log stream: $STREAM"
+          aws --endpoint-url=http://localhost:4566 logs get-log-events \
+            --log-group-name "$LOG_GROUP" \
+            --log-stream-name "$STREAM"
