@@ -3,12 +3,14 @@ import os
 import uuid
 import boto3
 
-# When running inside LocalStack, AWS_ENDPOINT_URL is set via the Lambda's
-# environment variables (see lambda.tf) so boto3 talks to LocalStack instead
-# of real AWS, exactly like the Terraform provider does.
+# LocalStack automatically injects LOCALSTACK_HOSTNAME into every Lambda
+# invocation, pointing back to the LocalStack container correctly on any
+# OS (unlike host.docker.internal, which only works on Docker Desktop
+# for Mac/Windows and not on Linux CI runners).
+_localstack_host = os.environ.get("LOCALSTACK_HOSTNAME", "localhost")
 dynamodb = boto3.resource(
     "dynamodb",
-    endpoint_url=os.environ.get("AWS_ENDPOINT_URL"),
+    endpoint_url=f"http://{_localstack_host}:4566",
     region_name=os.environ.get("AWS_REGION", "us-east-1"),
 )
 table = dynamodb.Table(os.environ.get("TABLE_NAME", "notes"))
