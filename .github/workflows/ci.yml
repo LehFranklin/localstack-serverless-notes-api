@@ -7,6 +7,34 @@ on:
     branches: [main]
 
 jobs:
+  secret-scan:
+    name: Secret Scanning (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
+  iac-scan:
+    name: IaC Security Scanning (tfsec)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run tfsec
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          additional_args: --minimum-severity HIGH
+
+  
   terraform-localstack:
     runs-on: ubuntu-latest
 
@@ -37,13 +65,16 @@ jobs:
             -v /var/run/docker.sock:/var/run/docker.sock \
             localstack/localstack:latest
 
-      - name: Wait for LocalStack to be ready
+            - name: Wait for LocalStack to be ready
         run: |
           for i in {1..30}; do
             curl -sf http://localhost:4566/_localstack/health && break
             echo "Waiting for LocalStack..."
             sleep 3
           done
+
+      - name: Reset LocalStack state (ensure clean slate)
+        run: curl -s -X POST http://localhost:4566/_localstack/state/reset
 
       - name: Terraform Init
         run: terraform init

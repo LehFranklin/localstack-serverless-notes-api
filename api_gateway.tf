@@ -37,6 +37,7 @@ resource "aws_lambda_permission" "apigw" {
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.notes_api.function_name
   principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.notes_api.execution_arn}/*/*"
 }
 
 # Deploy the API so it's actually reachable at a URL

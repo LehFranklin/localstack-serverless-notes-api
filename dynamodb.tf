@@ -8,11 +8,15 @@ resource "aws_dynamodb_table" "notes" {
     type = "S"
   }
 
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  server_side_encryption {
+    enabled = true
+  }
+
   tags = {
     Project = "localstack-serverless-api"
   }
-}
-
-output "dynamodb_table_name" {
-  value = aws_dynamodb_table.notes.name
 }
