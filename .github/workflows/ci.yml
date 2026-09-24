@@ -7,6 +7,33 @@ on:
     branches: [main]
 
 jobs:
+
+  secret-scan:
+    name: Secret Scanning (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  iac-scan:
+    name: IaC Security Scanning (tfsec)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run tfsec
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          additional_args: --minimum-severity HIGH
+
   terraform-localstack:
     runs-on: ubuntu-latest
 
@@ -25,9 +52,6 @@ jobs:
           echo "AWS_SECRET_ACCESS_KEY=test" >> $GITHUB_ENV
           echo "AWS_DEFAULT_REGION=us-east-1" >> $GITHUB_ENV
 
-      # Run LocalStack directly (not as a "services:" container) and mount
-      # the Docker socket, so LocalStack can spawn the sibling containers
-      # it needs to actually execute Lambda functions.
       - name: Start LocalStack
         run: |
           docker run -d --name localstack \
@@ -45,6 +69,10 @@ jobs:
             sleep 3
           done
 
+      - name: Reset LocalStack state
+        run: |
+          curl -s -X POST http://localhost:4566/_localstack/state/reset
+
       - name: Terraform Init
         run: terraform init
 
@@ -53,30 +81,42 @@ jobs:
 
       - name: Terraform Apply
         run: terraform apply -auto-approve
+
       - name: Test the deployed API
         run: |
           API_URL=$(terraform output -raw api_url)
           echo "API URL: $API_URL"
+
           sleep 5
 
           echo "Testing GET $API_URL"
           GET_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" "$API_URL")
           echo "$GET_RESPONSE"
+
           GET_STATUS=$(echo "$GET_RESPONSE" | grep "HTTP_STATUS" | cut -d: -f2)
+
           if [ "$GET_STATUS" != "200" ]; then
             echo "GET check FAILED (status $GET_STATUS)"
             exit 1
           fi
+
           echo "GET check passed"
 
           echo "Testing POST $API_URL"
-          POST_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "$API_URL" -H "Content-Type: application/json" -d '{"text": "created by CI"}')
+          POST_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
+            -X POST "$API_URL" \
+            -H "Content-Type: application/json" \
+            -d '{"text": "created by CI"}')
+
           echo "$POST_RESPONSE"
+
           POST_STATUS=$(echo "$POST_RESPONSE" | grep "HTTP_STATUS" | cut -d: -f2)
+
           if [ "$POST_STATUS" != "201" ]; then
             echo "POST check FAILED (status $POST_STATUS)"
             exit 1
           fi
+
           echo "POST check passed"
 
       - name: Show LocalStack logs on failure
@@ -87,11 +127,16 @@ jobs:
         if: failure()
         run: |
           LOG_GROUP="/aws/lambda/notes-api"
+
           STREAM=$(aws --endpoint-url=http://localhost:4566 logs describe-log-streams \
             --log-group-name "$LOG_GROUP" \
-            --order-by LastEventTime --descending \
-            --query 'logStreams[0].logStreamName' --output text)
+            --order-by LastEventTime \
+            --descending \
+            --query 'logStreams[0].logStreamName' \
+            --output text)
+
           echo "Log stream: $STREAM"
+
           aws --endpoint-url=http://localhost:4566 logs get-log-events \
             --log-group-name "$LOG_GROUP" \
             --log-stream-name "$STREAM"
